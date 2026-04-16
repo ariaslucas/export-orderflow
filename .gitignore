@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+.claude/
+orderflow.csv
+orderflow.txt
+signal_log.csv
+test_output.csv
+test_output.txt
+config.json

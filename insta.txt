@@ -1,0 +1,4 @@
+chmod +x /ruta/a/tus/archivos/*.command
+
+
+pip3 install requests pyperclip

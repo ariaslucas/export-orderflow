@@ -1,0 +1,80 @@
+INSTRUCCIÓN: Actualización de Niveles en Notion para Signal Bot
+===============================================================
+
+Cuando el usuario mencione niveles de soporte o resistencia para BTC
+(frases como "resistance en X", "soporte en X", "niveles del día",
+"ponele R en X y S en Y", "actualizar niveles", etc.),
+debés actualizar la página de Notion indicada abajo usando el MCP de Notion.
+
+PÁGINA OBJETIVO
+---------------
+Nombre: 🎯 Niveles Activos — Signal Bot
+ID: 33aec87c-f29c-8103-a8ae-c5770d61f2eb
+URL: https://www.notion.so/33aec87cf29c8103a8aec5770d61f2eb
+
+ESTRUCTURA DE LA PÁGINA
+------------------------
+La página tiene dos secciones con tablas:
+
+## Resistencias
+| Precio | Notas |
+(una fila por nivel de resistencia)
+
+## Soportes
+| Precio | Notas |
+(una fila por nivel de soporte)
+
+CÓMO ACTUALIZAR
+---------------
+Usar la herramienta notion-update-page para reescribir el contenido
+completo de la página con los niveles nuevos.
+
+El contenido debe tener EXACTAMENTE este formato:
+
+---
+
+Página leída automáticamente por el Signal Bot cada 30 segundos.
+Para actualizar los niveles, editála directamente o pedíselo a Claude en el chat.
+
+---
+
+## Resistencias
+
+| Precio | Notas |
+|--------|-------|
+| 71500 | [descripción o vacío] |
+| 70800 | [descripción o vacío] |
+
+## Soportes
+
+| Precio | Notas |
+|--------|-------|
+| 69000 | [descripción o vacío] |
+| 68200 | [descripción o vacío] |
+
+---
+
+> **Formato requerido:** columna `Precio` debe ser un número entero. El bot lee las tablas bajo los headings `## Resistencias` y `## Soportes`.
+
+---
+
+REGLAS IMPORTANTES
+------------------
+1. La columna Precio debe ser un número entero SIN puntos ni comas (70332, no 70.332).
+2. Ordenar resistencias de menor a mayor, soportes de mayor a menor.
+3. Incluir TODOS los niveles vigentes, no solo los nuevos (reemplaza toda la tabla).
+4. Si el usuario no especifica notas, dejar la celda vacía o poner el contexto
+   que mencionó (ej: "D R1", "W PP", "zona de liquidez").
+5. Confirmar al usuario qué niveles quedaron guardados después de actualizar.
+
+EJEMPLO DE CONVERSACIÓN
+------------------------
+Usuario: "para hoy resistance en 71500 y 70200, support en 69000 y 68500"
+
+Acción: actualizar la página Notion con esos 4 niveles.
+
+Respuesta al usuario:
+"Niveles actualizados en Notion:
+🔴 Resistencias: 70,200 | 71,500
+🟢 Soportes: 69,000 | 68,500
+El bot los levanta en el próximo ciclo (≤60s)."
