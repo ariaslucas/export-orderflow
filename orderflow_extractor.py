@@ -28,6 +28,10 @@ TF_TO_MS = {
 }
 OI_PERIODS = {"5m", "15m", "30m", "1h", "2h", "4h", "1d"}
 
+# Absorción thresholds
+ABSORCION_WICK_PCT = 0.0005  # 0.05% del precio — equivale a 50 pts en BTC ~100k
+ABSORCION_DELTA_PCT = 20.0
+
 
 # ─── API Functions ────────────────────────────────────────────────────────────
 
@@ -250,6 +254,18 @@ def build_orderflow_data(symbol: str, timeframe: str, num_candles: int, use_aggt
         r["oi_delta"] = (r["oi"] - prev_oi) if (r["oi"] is not None and prev_oi is not None) else None
         r["time"] = r["time_utc"].astimezone(TZ_UTC_MINUS_3).strftime("%H:%M" if timeframe not in ("1d",) else "%Y-%m-%d")
 
+        # Absorción flag
+        oi_neg = r["oi_delta"] is not None and r["oi_delta"] < 0
+        upper_wick = r["high"] - r["close"]
+        lower_wick = r["close"] - r["low"]
+        wick_threshold = r["close"] * ABSORCION_WICK_PCT
+        if r["delta_pct"] > ABSORCION_DELTA_PCT and oi_neg and upper_wick > wick_threshold:
+            r["absorcion"] = "BAJISTA"
+        elif r["delta_pct"] < -ABSORCION_DELTA_PCT and oi_neg and lower_wick > wick_threshold:
+            r["absorcion"] = "ALCISTA"
+        else:
+            r["absorcion"] = None
+
     current_oi = current_oi_data["oi"] if current_oi_data else None
     
     last = final_rows[-1]
@@ -329,9 +345,9 @@ def format_output(data: dict, analysis: dict) -> str:
     has_oi = any(r.get("oi") is not None for r in rows)
 
     if has_oi:
-        header = f"{'Time':<5}| {'Close':>9} | {'H/L':>15} | {'Vol':>6} | {'VRel':>4} | {'Delta':>8} | {'Δ%':>5} | {'B/S %':>9} | {'S-CVD':>8} | {'VWAP':>9} | {'OI Δ':>13}"
+        header = f"{'Time':<5}| {'Close':>9} | {'H/L':>15} | {'Vol':>6} | {'VRel':>4} | {'Delta':>8} | {'Δ%':>5} | {'B/S %':>9} | {'S-CVD':>8} | {'VWAP':>9} | {'OI Δ':>13} | {'ABSORCIÓN':<12}"
     else:
-        header = f"{'Time':<5}| {'Close':>9} | {'H/L':>15} | {'Vol':>6} | {'VRel':>4} | {'Delta':>8} | {'Δ%':>5} | {'B/S %':>9} | {'S-CVD':>8} | {'VWAP':>9}"
+        header = f"{'Time':<5}| {'Close':>9} | {'H/L':>15} | {'Vol':>6} | {'VRel':>4} | {'Delta':>8} | {'Δ%':>5} | {'B/S %':>9} | {'S-CVD':>8} | {'VWAP':>9} | {'ABSORCIÓN':<12}"
 
     lines.append(header)
     lines.append("-" * len(header))
@@ -345,6 +361,8 @@ def format_output(data: dict, analysis: dict) -> str:
         hl_str = f"{format_price(r['high'])}/{format_price(r['low'])}"
         vrel_str = f"{r['vol_rel']:.1f}x"
         dpct_str = f"{r['delta_pct']:+.0f}%"
+        abs_flag = r.get("absorcion")
+        abs_str = ("⚠ BAJISTA" if abs_flag == "BAJISTA" else "⚠ ALCISTA" if abs_flag == "ALCISTA" else "")
 
         if has_oi:
             oi_delta = r.get("oi_delta")
@@ -354,10 +372,10 @@ def format_output(data: dict, analysis: dict) -> str:
             else:
                 oi_delta_str = "---"
             line = (f"{r['time']:<5}| {format_price(r['close']):>9} | {hl_str:>15} | {vol_str:>6} | {vrel_str:>4} | "
-                    f"{delta_str:>8} | {dpct_str:>5} | {bs_str:>9} | {cvd_str:>8} | {vwap_str:>9} | {oi_delta_str:>13}")
+                    f"{delta_str:>8} | {dpct_str:>5} | {bs_str:>9} | {cvd_str:>8} | {vwap_str:>9} | {oi_delta_str:>13} | {abs_str:<12}")
         else:
             line = (f"{r['time']:<5}| {format_price(r['close']):>9} | {hl_str:>15} | {vol_str:>6} | {vrel_str:>4} | "
-                    f"{delta_str:>8} | {dpct_str:>5} | {bs_str:>9} | {cvd_str:>8} | {vwap_str:>9}")
+                    f"{delta_str:>8} | {dpct_str:>5} | {bs_str:>9} | {cvd_str:>8} | {vwap_str:>9} | {abs_str:<12}")
         lines.append(line)
     
     lines.append("")
@@ -453,17 +471,12 @@ def auto_analyze(data: dict) -> dict:
     
     # ── 3. ABSORCIÓN ──────────────────────────────────────────────────────
     for r in r5:
-        candle_range = r["high"] - r["low"]
-        if candle_range == 0: continue
-        body = abs(r["close"] - r["open"])
-        body_pct = (body / candle_range) * 100
-        
-        if r["buy_pct"] > 62 and r["close"] < r["open"] and body_pct > 25:
+        if r.get("absorcion") == "BAJISTA":
             findings.append({"type": "ABSORCIÓN", "severity": "high", "bias": "bear",
-                "msg": f"{r['time']}: Compra agresiva ({r['buy_pct']:.0f}%) pero vela ROJA → oferta absorbe demanda"})
-        elif r["sell_pct"] > 62 and r["close"] > r["open"] and body_pct > 25:
+                "msg": f"{r['time']}: Delta% {r['delta_pct']:+.0f}% + OI cae + mecha sup {r['high']-r['close']:.0f}pts → vendedor pasivo absorbiendo compra (distribución en high)"})
+        elif r.get("absorcion") == "ALCISTA":
             findings.append({"type": "ABSORCIÓN", "severity": "high", "bias": "bull",
-                "msg": f"{r['time']}: Venta agresiva ({r['sell_pct']:.0f}%) pero vela VERDE → demanda absorbe oferta"})
+                "msg": f"{r['time']}: Delta% {r['delta_pct']:+.0f}% + OI cae + mecha inf {r['close']-r['low']:.0f}pts → comprador pasivo absorbiendo venta (acumulación en low)"})
     
     # ── 4. SPIKE DE VOLUMEN ───────────────────────────────────────────────
     for r in r5:
@@ -671,7 +684,7 @@ def export_csv(data: dict, filepath: str, analysis: dict, action: dict = None):
         writer.writerow([
             "time", "close", "high", "low", "volume",
             "delta", "delta_pct", "buy_pct", "sell_pct",
-            "cvd", "vwap", "oi", "oi_delta", "vol_rel"
+            "cvd", "vwap", "oi", "oi_delta", "vol_rel", "absorcion"
         ])
 
         # Filas de velas
@@ -691,6 +704,7 @@ def export_csv(data: dict, filepath: str, analysis: dict, action: dict = None):
                 round(r["oi"], 0) if r.get("oi") else "",
                 round(r["oi_delta"], 2) if r.get("oi_delta") is not None else "",
                 round(r["vol_rel"], 2),
+                r.get("absorcion") or "",
             ])
 
         # Separador
