@@ -14,6 +14,7 @@ import requests
 import sys
 import time
 from datetime import datetime, timezone, timedelta
+from statistics import median
 
 # Create UTC-3 timezone for display formatting
 TZ_UTC_MINUS_3 = timezone(timedelta(hours=-3))
@@ -204,15 +205,21 @@ def build_orderflow_data(symbol: str, timeframe: str, num_candles: int, use_aggt
             "daily_low": daily_low,
         })
 
-    # Volumen relativo: vol de cada vela vs promedio de las N anteriores (N = num_candles configurado)
+    # Volumen relativo: vol de cada vela vs MEDIANA de las N anteriores (robusta a spikes)
+    # Mediana en vez de media para que 1-2 velas extremas no inflen el baseline y hagan
+    # que el volumen normal post-spike parezca anómalamente bajo.
     lookback = num_candles
     for i in range(len(processed_rows)):
         window = processed_rows[max(0, i - lookback):i]
         if window:
-            avg_vol = sum(w["volume"] for w in window) / len(window)
-            processed_rows[i]["vol_rel"] = processed_rows[i]["volume"] / avg_vol if avg_vol > 0 else 1.0
+            vols = [w["volume"] for w in window]
+            med_vol = median(vols)
+            processed_rows[i]["vol_rel"] = processed_rows[i]["volume"] / med_vol if med_vol > 0 else 1.0
+            mad = median([abs(v - med_vol) for v in vols]) or 1.0
+            processed_rows[i]["vol_mad_score"] = (processed_rows[i]["volume"] - med_vol) / mad
         else:
             processed_rows[i]["vol_rel"] = 1.0
+            processed_rows[i]["vol_mad_score"] = 0.0
 
     final_rows = processed_rows[-num_candles:]
     
@@ -421,8 +428,10 @@ def auto_analyze(data: dict) -> dict:
     
     last = rows[-1]
     r5 = rows[-5:]
-    avg_vol = sum(r["volume"] for r in rows) / len(rows)
-    avg_delta = sum(abs(r["delta"]) for r in rows) / len(rows)
+    # Mediana en vez de media: robusta a 1-2 velas de volumen/delta extremo que
+    # inflarían el baseline y distorsionarían thresholds de spike/exhaustión.
+    avg_vol = median([r["volume"] for r in rows])
+    avg_delta = median([abs(r["delta"]) for r in rows])
     
     # ── 1. DIVERGENCIA CVD vs PRECIO ──────────────────────────────────────
     prices = [r["close"] for r in r5]
